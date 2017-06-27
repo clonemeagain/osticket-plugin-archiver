@@ -60,7 +60,7 @@ class ArchiverPluginConfig extends PluginConfig {
 						'label' => $__ ( 'Archive Configuration' ) 
 				) ),
 				'mode' => new ChoiceField ( array (
-						'label' => $__ ( 'Archive Type' ),
+						'label' => $__ ( 'Archive type' ),
 						'choices' => array (
 								'basic' => $__ ( 'Basic Archive Mode (save a PDF only).' ),
 								'advanced' => $__ ( 'Advanced Archive Mode (stores all attachments and metadata in a folder per ticket.' ) 
@@ -69,7 +69,7 @@ class ArchiverPluginConfig extends PluginConfig {
 						'hint' => $__ ( 'Either PDF only or Everything' ) 
 				) ),
 				'archive-path' => new TextboxField ( array (
-						'label' => $__ ( 'Archive Location' ),
+						'label' => $__ ( 'Archive location' ),
 						'hint' => $__ ( 'Something that is not publically accessible would be good, NOT THE SAME AS ATTACHMENTS PATH!.' ),
 						'size' => 80,
 						'length' => 256,
@@ -77,7 +77,7 @@ class ArchiverPluginConfig extends PluginConfig {
 						'required' => true 
 				) ),
 				'include-notes' => new Booleanfield ( array (
-						'label' => $__ ( 'Include Private/Admin Notes in Archived Tickets' ) 
+						'label' => $__ ( 'Include private notes in archived tickets' ) 
 				) ),
 				'purge-break' => new SectionBreakField ( array (
 						'label' => $__ ( 'Auto Purge tickets via cron' ),
@@ -89,7 +89,7 @@ class ArchiverPluginConfig extends PluginConfig {
 				) ),
 				'purge-age' => new TextboxField ( array (
 						'default' => '999',
-						'label' => $__ ( 'Max Age (in months) for tickets' ),
+						'label' => $__ ( 'Max age (in months) for tickets' ),
 						'hint' => $__ ( 'Keep everything younger than this. 999 months = 83 years' ),
 						'size' => 5,
 						'length' => 3  // 83.25 years

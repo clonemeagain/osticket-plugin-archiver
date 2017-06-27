@@ -11,7 +11,7 @@ Open /include/class.ticket.php and add the line below:
         
         Signal::send('ticket.before.delete', $this); // Archiver plugin: Added to archive tickets before deleting them.
 ```
-- You'll need to hit save in Plugin settings after every update to verify that this is still there.
+
 - Admin options allow you to specify how old tickets have to be before purge 
 - Admin option defines where to dump old tickets
 
@@ -32,4 +32,8 @@ if "Basic Archive" mode enabled, then:
 ## Purge Age Setting
 Depending on Admin "purge age", we listen to a new ticket signal, check the last time we ran (we'll store it in config)
 
-$this->getConfig('lastrun') for instance..
+We store when it last ran the purge, and depending on your settings, will run it again provided cron is called often enough. EG: If you want it to run every 12 hours, but only run cron every 24, not much we can do about that.
+
+## Important: Update Requirement
+After each update, go into the plugin settings and push Save, this will check that the `Signal` is still there, otherwise it will need to be added again.  
+I haven't found a way of detecting the upgrade without doing it on bootstrap, which is bad from a performance perspective. 

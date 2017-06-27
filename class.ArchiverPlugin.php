@@ -3,22 +3,28 @@ require_once (INCLUDE_DIR . 'class.signal.php');
 require_once ('config.php');
 
 /**
- * The goal of this Plugin is to archive old plugins
+ * The goal of this Plugin is to archive old Tickets
+ *
+ * It provides an Archive function, converting tickets to PDF (using normal PDF Export)
+ * By intercepting the Delete function (via Signal), and archiving before delete finishes.
+ *
+ * It also provides a cron task to archive & delete old tickets that you don't need anymore.
  */
 class ArchiverPlugin extends Plugin {
+	const DEBUG = TRUE;
 	/**
 	 * I believe this is part of the Plugin spec, which config to use
 	 *
 	 * @var string
 	 */
 	var $config_class = 'ArchiverPluginConfig';
+	
 	/**
-	 * Some admin defined plugin variables:
+	 * Where are we storing our archvives?
 	 *
 	 * @var string $path to archived tickets
-	 * @var int $freq in hours of running auto-purger
 	 */
-	private $path, $mode, $max_age, $freq, $num;
+	private $path;
 	
 	/**
 	 * Run on every instatiation of osTicket..
@@ -33,6 +39,9 @@ class ArchiverPlugin extends Plugin {
 		// really depends on admin adding the line to the class.tickets.php file
 		// kinda breaks all archiving without that.
 		Signal::connect ( 'ticket.before.delete', function ($ticket) {
+			if (self::DEBUG) {
+				print "Ticket delete signal received, initiating Archive!\n";
+			}
 			$this->archive ( $ticket );
 		} );
 		
@@ -49,43 +58,55 @@ class ArchiverPlugin extends Plugin {
 	 * Purges tickets on cron
 	 */
 	private function autoPurge() {
-		$c = $this->getConfig ();
-		$this->freq = ( int ) $c->get ( 'purge-frequency' );
+		$config = $this->getConfig ();
 		
-		$last_run = $c->get ( 'last-run' );
-		$now = time ();
-		
+		// Instead of storing "next-run", we store "last-run", then compare frequency, in case frequency changes.
+		$last_run = $config->get ( 'last-run' );
+		$now = time (); // Assume server timezone doesn't change enough to break this
+		                
 		// Find purge frequency in a comparable format, seconds:
-		$freq_in_seconds = $this->freq * 60 * 60;
+		$freq_in_seconds = ( int ) $config->get ( 'purge-frequency' ) * 60 * 60;
 		
+		// Calculate when we want to run next:
 		$next_run = $last_run + $freq_in_seconds;
 		
-		if (! $next_run || $now > $next_run) {
-			print "Running purge\n";
-			$c->set ( 'last-run', $now + $freq_in_seconds );
+		// Compare intention with reality:
+		if (self::DEBUG || ! $next_run || $now > $next_run) {
+			// if (self::DEBUG)
+			// print "Running purge\n";
+			$config->set ( 'last-run', $now + $freq_in_seconds );
 			
 			// Fetch the rest of the admin settings, now that we're actually going through with this:
-			$max_age = ( int ) $c->get ( 'purge-age' );
-			if ($max_age > 999) {
-				$max_age = 999; // I fuckin hope this is still working in 80+ years
-			}
+			$max_age = ( int ) $config->get ( 'purge-age' );
+			// if ($max_age > 999) {
+			// $max_age = 999; // I fuckin hope this is still working in 80+ years
+			// }
 			
 			// Find deletable tickets in the database:
-			foreach ( $this->findOldTickets ( $max_age, $c->get ( 'purge-num' ) ) as $ticket_id ) {
+			foreach ( $this->findOldTickets ( $max_age, $config->get ( 'purge-num' ) ) as $ticket_id ) {
 				// Trigger the Archive code via signal above by simply deleting the ticket
-				$t = Ticket::lookup($ticket_id);
-				print "Would have deleted {$ticket->getSubject()}\n";
-				//Ticket::lookup ( $ticket_id )->delete ();
+				$t = self::getTicket ( $ticket_id );
+				if ($t instanceof Ticket) {
+					// print "Would have deleted {$t->getSubject()}\n";
+					$this->archive ( $t );
+					// Ticket::lookup ( $ticket_id )->delete ();
+				}
 			}
-		}else{
-			print "Purge due: " . date('d-m-Y H:i:s',$next_run);
+		} else {
+			print "Purge due: " . date ( 'd-m-Y H:i:s', $next_run );
 		}
+	}
+	public static function getTicket($id) {
+		// Bypass the cache, why? Because we want the full ticket
+		return Ticket::objects ()->filter ( array (
+				'ticket_id' => $id 
+		) )->one ();
 	}
 	
 	/**
 	 * Retrieves an array of ticket_id's from the database
 	 *
-	 * Filtered to only show those that were closed longer than max-age months ago.
+	 * Filtered to only show those that were closed longer than $age_months months ago, oldest first.
 	 *
 	 * @return NULL|unknown|array|string|QuerySet
 	 * @param int $age_months        	
@@ -137,6 +158,19 @@ class ArchiverPlugin extends Plugin {
 		 */
 		global $thisstaff;
 		
+		if (! $thisstaff) {
+			// fuck.. we need one for the pdf export to work.. let's find whoever closed the ticket, and make them the active user.
+			$thisstaff = $ticket->getStaff ();
+		}
+		
+		$ticket->getThreadEntries (); // Force loading thread.. ffs.
+		
+		$psize = false;
+		
+		if (! defined ( 'STAFFINC_DIR' )) {
+			define ( 'STAFFINC_DIR', INCLUDE_DIR . 'staff/' );
+		}
+		
 		require_once (INCLUDE_DIR . 'class.pdf.php');
 		if (! is_string ( $psize )) {
 			if ($_SESSION ['PAPER_SIZE'])
@@ -144,19 +178,20 @@ class ArchiverPlugin extends Plugin {
 			elseif (! $thisstaff || ! ($psize = $thisstaff->getDefaultPaperSize ()))
 				$psize = 'Letter';
 		}
+		$path = $this->getConfig ()->get ( 'archive-path' );
 		
 		$pdf = new Ticket2PDF ( $ticket, $psize, ($this->getConfig ()->get ( 'include-notes' )) );
 		
 		$number = $ticket->getNumber ();
 		$subject = $ticket->getSubject ();
 		
-		$path = $this->getConfig ()->get ( 'archive-path' );
-		
 		// Figure out what type of archive the admin wanted.
 		if ($this->getConfig ()->get ( 'mode' ) == 'basic') {
-			$name = 'Ticket-' . $ticket->getSubject () . '_' . $ticket->getNumber () . '.pdf';
+			$name = @Format::slugify ( 'Ticket-' . $ticket->getSubject () . '_' . $ticket->getNumber () ) . '.pdf';
+			ob_clean ();
 			// Specify that we want a file output, not an HTML Attachment/Download:
 			$pdf->Output ( "{$path}/$name", 'F' );
+			return;
 			// TODO: Set timestamp of file to when closed
 		} else {
 			// TODO: Advanced Mode Archive!
@@ -166,10 +201,10 @@ class ArchiverPlugin extends Plugin {
 			$dept = $ticket->getDeptName ();
 			$user = $ticket->getOwner ()->getName ();
 			
-			$folder = "$path/$dept/$user/{$ticket->getSubject ()}_{$ticket->getNumber ()}";
+			$folder = $path . @Format::slugify ( "/$dept/$user/{$ticket->getSubject ()}_{$ticket->getNumber ()}" );
 			
 			if (! is_dir ( $folder )) {
-				mkdir ( $folder );
+				mkdir ( $folder, 0755, TRUE );
 			}
 			// Fetch metadata for the ticket
 			$export = array (
@@ -182,24 +217,24 @@ class ArchiverPlugin extends Plugin {
 			
 			// start dumping attachments:
 			foreach ( $ticket->getThread ()->getEntries ()->getAttachments () as $a ) {
-				// ?? Does that even work
+				// ?? Does that even work completely untested so far.
 				$file = $a->file; // Should be AttachmentFile objects
 				$filename = $file->getFilename ();
 				$this->copyFile ( $file, "$folder/attachment_$filename" );
 			}
 			
+			ob_clean ();
 			// Save the thread as normal PDF
 			$pdf->Output ( "$folder/Ticket-{$ticket->getNumber()}.pdf", 'F' );
 			// TODO: Set timestamp of file to when closed
 		}
-		
-		// Remember what the user selected - for autoselect on the next print.
-		$_SESSION ['PAPER_SIZE'] = $psize;
 	}
 	
 	/**
 	 * Attempt to capture the file..
 	 * into a file. :-|
+	 *
+	 * Completely untested..
 	 *
 	 * @param AttachmentFile $file        	
 	 * @param string $dest
