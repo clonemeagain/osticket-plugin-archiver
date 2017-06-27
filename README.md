@@ -11,7 +11,7 @@ Open /include/class.ticket.php and add the line below:
         
         Signal::send('ticket.before.delete', $this); // Archiver plugin: Added to archive tickets before deleting them.
 ```
-
+- You'll need to hit save in Plugin settings after every update to verify that this is still there.
 - Admin options allow you to specify how old tickets have to be before purge 
 - Admin option defines where to dump old tickets
 

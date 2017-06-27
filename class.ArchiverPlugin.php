@@ -6,78 +6,79 @@ require_once ('config.php');
  * The goal of this Plugin is to archive old plugins
  */
 class ArchiverPlugin extends Plugin {
+	/**
+	 * I believe this is part of the Plugin spec, which config to use
+	 *
+	 * @var string
+	 */
 	var $config_class = 'ArchiverPluginConfig';
-	private $path, $mode, $auto, $max_age, $freq, $num;
+	/**
+	 * Some admin defined plugin variables:
+	 *
+	 * @var string $path to archived tickets
+	 * @var int $freq in hours of running auto-purger
+	 */
+	private $path, $mode, $max_age, $freq, $num;
+	
+	/**
+	 * Run on every instatiation of osTicket..
+	 * needs to be concise
+	 *
+	 * {@inheritdoc}
+	 *
+	 * @see Plugin::bootstrap()
+	 */
 	public function bootstrap() {
-		$c = $this->getConfig ();
-		
-		$this->path = $c->get ( 'archive-path' );
-		
-		if (! $this->path) {
-			// This hasn't been set, no point complaining, they'll figure it out.. right?
-			$this->log ( "Archive path not set, ignoring" );
-			return;
-		}
-		
-		if (! is_dir ( $this->path ) && ! is_writable ( $this->path )) {
-			$this->log ( "Check the permissions of the path {$this->path}, can't write to it." );
-			return;
-		}
-		
-		$class_ticket_php = dirname ( dirname ( dirname ( __FILE__ ) ) ) . 'class.ticket.php';
-		if (! preg_match ( '/ticket\.before\.delete/', file_get_contents ( $class_ticket_php ) )) {
-			// We are unable to detect tickets being deleted! shit!
-			$this->log ( "Please add Signal to class.tickets.php " );
-			
-			// Don't do anything.. just bail man!
-			return;
-		}
-		
-		// Register handler to detect tickets being deleted.. really depends on user adding the line to the class.tickets.php file
-		// kinda breaks all archiving without that.. wonder if we can check for it?
-		
+		// Register handler to detect tickets being deleted..
+		// really depends on admin adding the line to the class.tickets.php file
+		// kinda breaks all archiving without that.
 		Signal::connect ( 'ticket.before.delete', function ($ticket) {
-			$this->archivTicket ( $ticket );
+			$this->archive ( $ticket );
 		} );
 		
-		$this->mode = ( bool ) ($c->get ( 'mode' ) == 'basic');
-		$this->auto = ( bool ) $c->get ( 'purge' );
-		
-		if ($this->auto) {
-			// Runs on every model.created, so, we need to ensure we don't run too often.
-			Signal::connect ( 'model.created', function ($obj, &$vars) {
-				// We'll ignore $obj & $vars, we're not interested,
-				// we just wanted something that happened fairly regularly to trigger this
-				$this->max_age = ( int ) $c->get ( 'purge-age' );
-				if ($this->max_age > 999) {
-					$this->max_age = 999; // I fuckin hope this is still working in 80+ years and someone hits this.
-				}
-				$this->freq = ( int ) $c->get ( 'purge-frequency' );
-				$this->num = ( int ) $c->get ( 'purge-num' );
-				
-				// Find purge frequency in a comparable format, seconds:
-				$freq_in_seconds = $this->freq * 60 * 60;
-				
-				// If we've not got a lock/touch-file, let's make one, and if so
-				// compare it's timestamp to the frequency the admin want's us to use
-				// If now's timestamp minus the file's timestamp is greater than that frequency in seconds
-				// then it's time to party!
-				if (! file_exists ( 'touch' ) || (time () - stat ( 'touch' ) ['mtime'] > $freq_in_seconds)) {
-					touch ( 'touch' ); // we'll touch this file, and get on with our work.
-					                   // Check for purgeable files & delete them.
-					if ($purgeme = $this->findOldTickets ()) {
-						$done = 0;
-						foreach ( $purgeme as $ticket_id ) {
-							$ticket = Ticket::lookup ( $ticket_id );
-							$ticket->delete (); // Triggers the Archive code
-							$this->archiveTicket ( $ticket );
-							if ($done ++ > $this->num) {
-								break;
-							}
-						}
-					}
-				}
+		if ($this->getConfig ()->get ( 'purge' )) {
+			// Register cron handler to archive & delete tickets on schedule
+			Signal::connect ( 'cron', function ($ignore1, $ignore2) {
+				// Do we care if it's autocron? (bool) $ignore2['autocron']
+				$this->autoPurge ();
 			} );
+		}
+	}
+	
+	/**
+	 * Purges tickets on cron
+	 */
+	private function autoPurge() {
+		$c = $this->getConfig ();
+		$this->freq = ( int ) $c->get ( 'purge-frequency' );
+		
+		$last_run = $c->get ( 'last-run' );
+		$now = time ();
+		
+		// Find purge frequency in a comparable format, seconds:
+		$freq_in_seconds = $this->freq * 60 * 60;
+		
+		$next_run = $last_run + $freq_in_seconds;
+		
+		if (! $next_run || $now > $next_run) {
+			print "Running purge\n";
+			$c->set ( 'last-run', $now + $freq_in_seconds );
+			
+			// Fetch the rest of the admin settings, now that we're actually going through with this:
+			$max_age = ( int ) $c->get ( 'purge-age' );
+			if ($max_age > 999) {
+				$max_age = 999; // I fuckin hope this is still working in 80+ years
+			}
+			
+			// Find deletable tickets in the database:
+			foreach ( $this->findOldTickets ( $max_age, $c->get ( 'purge-num' ) ) as $ticket_id ) {
+				// Trigger the Archive code via signal above by simply deleting the ticket
+				$t = Ticket::lookup($ticket_id);
+				print "Would have deleted {$ticket->getSubject()}\n";
+				//Ticket::lookup ( $ticket_id )->delete ();
+			}
+		}else{
+			print "Purge due: " . date('d-m-Y H:i:s',$next_run);
 		}
 	}
 	
@@ -87,18 +88,30 @@ class ArchiverPlugin extends Plugin {
 	 * Filtered to only show those that were closed longer than max-age months ago.
 	 *
 	 * @return NULL|unknown|array|string|QuerySet
+	 * @param int $age_months        	
+	 * @param int $max_purge        	
 	 */
-	private function findOldTickets() {
-		return db_fetch_array ( db_query ( 'SELECT ticket_id FROM ' . TICKET_TABLE . ' WHERE closed > DATE_SUB(NOW(), INTERVAL ' . $this->max_age . ' MONTH)' ) );
+	private function findOldTickets($age_months, $max_purge = 10) {
+		if (! $age_months) {
+			return array ();
+		}
+		return db_fetch_array ( db_query ( 'SELECT ticket_id FROM ' . TICKET_TABLE . ' WHERE closed > DATE_SUB(NOW(), INTERVAL ' . $age_months . ' MONTH) ORDER BY closed ASC LIMIT ' . $max_purge ) );
 		
 		// Attempt to use ORM?
+		// I'm sure that's wrong.
 		$query = Ticket::objects ()->filter ( array (
 				'closed' => '>= DATESUB(NOW(), INTERVAL ' . $this->max_age . ' MONTH)' 
 		) );
 		
 		return $query->values_flat ( 'ticket_id' );
 	}
-	private function archiveTicket(Ticket $ticket) {
+	
+	/**
+	 * Saves details for a ticket to filesystem
+	 *
+	 * @param Ticket $ticket        	
+	 */
+	private function archive(Ticket $ticket) {
 		/**
 		 * Pretty much a duplicate of $ticket->pdfExport(),
 		 * // Print ticket...
@@ -132,14 +145,18 @@ class ArchiverPlugin extends Plugin {
 				$psize = 'Letter';
 		}
 		
-		$pdf = new Ticket2PDF ( $ticket, $psize, TRUE );
+		$pdf = new Ticket2PDF ( $ticket, $psize, ($this->getConfig ()->get ( 'include-notes' )) );
 		
 		$number = $ticket->getNumber ();
 		$subject = $ticket->getSubject ();
 		
-		if ($this->mode) {
+		$path = $this->getConfig ()->get ( 'archive-path' );
+		
+		// Figure out what type of archive the admin wanted.
+		if ($this->getConfig ()->get ( 'mode' ) == 'basic') {
 			$name = 'Ticket-' . $ticket->getSubject () . '_' . $ticket->getNumber () . '.pdf';
-			$pdf->Output ( "{$this->path}/$name", 'F' );
+			// Specify that we want a file output, not an HTML Attachment/Download:
+			$pdf->Output ( "{$path}/$name", 'F' );
 			// TODO: Set timestamp of file to when closed
 		} else {
 			// TODO: Advanced Mode Archive!
@@ -149,12 +166,12 @@ class ArchiverPlugin extends Plugin {
 			$dept = $ticket->getDeptName ();
 			$user = $ticket->getOwner ()->getName ();
 			
-			$folder = $this->path . '/' . $dept . '/' . $user . '/' . $ticket->getSubject () . '_' . $ticket->getNumber ();
+			$folder = "$path/$dept/$user/{$ticket->getSubject ()}_{$ticket->getNumber ()}";
 			
 			if (! is_dir ( $folder )) {
 				mkdir ( $folder );
 			}
-			// Fetch all metadata including thread/mailheaders/attachments etc
+			// Fetch metadata for the ticket
 			$export = array (
 					'ticket' => $ticket,
 					'recipients' => $ticket->getThread ()->getAllRecipients (),
@@ -166,7 +183,7 @@ class ArchiverPlugin extends Plugin {
 			// start dumping attachments:
 			foreach ( $ticket->getThread ()->getEntries ()->getAttachments () as $a ) {
 				// ?? Does that even work
-				$file = $a->file;
+				$file = $a->file; // Should be AttachmentFile objects
 				$filename = $file->getFilename ();
 				$this->copyFile ( $file, "$folder/attachment_$filename" );
 			}
@@ -224,7 +241,8 @@ class ArchiverPlugin extends Plugin {
 		$errors = array ();
 		
 		// Do we send an email to the admin telling him about the space used by the archive?
-		unlink ( 'touch' ); // purge our temp lockfile.
+		global $ost;
+		$ost->alertAdmin ( 'Plugin: Archiver has been uninstalled', 'Please note, the archive directory has not been deleted, however the configuration for the plugin has been.', true );
 		
 		parent::uninstall ( $errors );
 	}

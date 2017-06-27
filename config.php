@@ -16,6 +16,35 @@ class ArchiverPluginConfig extends PluginConfig {
 		}
 		return Plugin::translate ( 'archiver' );
 	}
+	function pre_save($config, &$errors) {
+		$server_user = posix_getpwuid ( posix_geteuid () ) ['name']; // https://stackoverflow.com/a/17709403
+		                                                             
+		// Ensure the webserver can write to the archive folder:
+		if (! is_dir ( $config ['archive-path'] ) && ! mkdir ( $config ['archive-path'] ) || (! is_writable ( $config ['archive-path'] ))) {
+			$errors ['err'] .= "\nCheck the permissions of the path {$config['archive-path']}, $server_user can't write to it.";
+		}
+		/**
+		 * We Need to ensure our signal will be sent.
+		 * Wonder if there is a way of checking updates? What if we stored a timestamp of the file and checked it..
+		 * fark.
+		 */
+		// Attempt to parse /include/class.ticket.php
+		$class_ticket_php = dirname ( dirname ( dirname ( __FILE__ ) ) ) . '/class.ticket.php';
+		if (! file_exists ( $class_ticket_php )) {
+			$errors ['err'] .= "\nUnable to open class.ticket.php to check for signal.";
+		}
+		
+		// Attempt to find our signal string:
+		if (preg_match ( '/ticket\.before\.delete/', file_get_contents ( $class_ticket_php ) ) == FALSE) {
+			// We are unable to detect tickets being deleted! shit!
+			$errors ['err'] .= "\nThe signal is not being sent from class.tickets.php, check README.";
+		}
+		if (isset ( $errors ['err'] ))
+			return false;
+		
+		// Peachy? Yeah
+		return true;
+	}
 	
 	/**
 	 * Build an Admin settings page.
@@ -31,7 +60,7 @@ class ArchiverPluginConfig extends PluginConfig {
 						'label' => $__ ( 'Archive Configuration' ) 
 				) ),
 				'mode' => new ChoiceField ( array (
-						'label' => $__ ( 'Archive type' ),
+						'label' => $__ ( 'Archive Type' ),
 						'choices' => array (
 								'basic' => $__ ( 'Basic Archive Mode (save a PDF only).' ),
 								'advanced' => $__ ( 'Advanced Archive Mode (stores all attachments and metadata in a folder per ticket.' ) 
@@ -40,18 +69,19 @@ class ArchiverPluginConfig extends PluginConfig {
 						'hint' => $__ ( 'Either PDF only or Everything' ) 
 				) ),
 				'archive-path' => new TextboxField ( array (
-						'label' => $__ ( 'Storage Location' ),
+						'label' => $__ ( 'Archive Location' ),
 						'hint' => $__ ( 'Something that is not publically accessible would be good, NOT THE SAME AS ATTACHMENTS PATH!.' ),
 						'size' => 80,
 						'length' => 256,
-						'placeholder' => '/opt/tickets/archives',
+						'placeholder' => '/opt/osTicket/archive',
 						'required' => true 
 				) ),
-				'include-nodes' => new Booleanfield ( array (
-						'label' => $__ ( 'Include notes in Archived Tickets' ) 
+				'include-notes' => new Booleanfield ( array (
+						'label' => $__ ( 'Include Private/Admin Notes in Archived Tickets' ) 
 				) ),
 				'purge-break' => new SectionBreakField ( array (
-						'label' => $__ ( 'Auto Purge' ) 
+						'label' => $__ ( 'Auto Purge tickets via cron' ),
+						'hint' => $__ ( 'Or you know, you could manually delete old tickets..' ) 
 				) ),
 				'purge' => new BooleanField ( array (
 						'label' => $__ ( 'Auto-purge old closed tickets' ),
@@ -67,6 +97,9 @@ class ArchiverPluginConfig extends PluginConfig {
 				'purge-frequency' => new ChoiceField ( array (
 						'label' => $__ ( 'Purge Frequency' ),
 						'choices' => array (
+								'1' => $__ ( 'Every Hour' ),
+								'2' => $__ ( '2 Hours' ),
+								'6' => $__ ( '6 Hours' ),
 								'12' => $__ ( '12 Hours' ),
 								'24' => $__ ( '1 Day' ),
 								'36' => $__ ( '36 Hours' ),
@@ -74,7 +107,7 @@ class ArchiverPluginConfig extends PluginConfig {
 								'72' => $__ ( '72 Hours' ),
 								'168' => $__ ( '1 Week' ) 
 						),
-						'default' => '24',
+						'default' => '2',
 						'hint' => $__ ( "How often should we archive & purge old tickets?" ) 
 				) ),
 				'purge-num' => new TextboxField ( array (
