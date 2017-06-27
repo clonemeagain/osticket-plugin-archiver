@@ -87,9 +87,11 @@ class ArchiverPlugin extends Plugin {
 				// Trigger the Archive code via signal above by simply deleting the ticket
 				$t = self::getTicket ( $ticket_id );
 				if ($t instanceof Ticket) {
-					// print "Would have deleted {$t->getSubject()}\n";
+					error_log ( "Would have deleted {$t->getSubject()}" );
 					$this->archive ( $t );
 					// Ticket::lookup ( $ticket_id )->delete ();
+				} else {
+					error_log ( "$ticket_id wasn't a valid ticket_id" );
 				}
 			}
 		} else {
@@ -116,15 +118,16 @@ class ArchiverPlugin extends Plugin {
 		if (! $age_months) {
 			return array ();
 		}
-		return db_fetch_array ( db_query ( 'SELECT ticket_id FROM ' . TICKET_TABLE . ' WHERE closed > DATE_SUB(NOW(), INTERVAL ' . $age_months . ' MONTH) ORDER BY closed ASC LIMIT ' . $max_purge ) );
 		
-		// Attempt to use ORM?
-		// I'm sure that's wrong.
-		$query = Ticket::objects ()->filter ( array (
-				'closed' => '>= DATESUB(NOW(), INTERVAL ' . $this->max_age . ' MONTH)' 
-		) );
+		$ids = array ();
+		$r = db_query ( 'SELECT ticket_id FROM ' . TICKET_TABLE . ' WHERE closed > DATE_SUB(NOW(), INTERVAL ' . $age_months . ' MONTH) ORDER BY ticket_id ASC LIMIT ' . $max_purge );
+		while ( $i = db_fetch_array ( $r ) ) {
+			$ids [] = $i ['ticket_id'];
+		}
+		if (self::DEBUG)
+			error_log ( "Deleting " . count ( $ids ) );
 		
-		return $query->values_flat ( 'ticket_id' );
+		return $ids;
 	}
 	
 	/**
@@ -168,6 +171,8 @@ class ArchiverPlugin extends Plugin {
 		$psize = false;
 		
 		if (! defined ( 'STAFFINC_DIR' )) {
+			// Normally this constant is only defined when staff are logged in..
+			// but we'll possibly be running from cron, so it won't be.
 			define ( 'STAFFINC_DIR', INCLUDE_DIR . 'staff/' );
 		}
 		
@@ -187,12 +192,13 @@ class ArchiverPlugin extends Plugin {
 		
 		// Figure out what type of archive the admin wanted.
 		if ($this->getConfig ()->get ( 'mode' ) == 'basic') {
+			// Ignore format warning about static usage, build a filename that won't break the filesystem:
 			$name = @Format::slugify ( 'Ticket-' . $ticket->getSubject () . '_' . $ticket->getNumber () ) . '.pdf';
-			ob_clean ();
+			
 			// Specify that we want a file output, not an HTML Attachment/Download:
 			$pdf->Output ( "{$path}/$name", 'F' );
 			return;
-			// TODO: Set timestamp of file to when closed
+			// TODO: Set timestamp of file to when ticket closed
 		} else {
 			// TODO: Advanced Mode Archive!
 			// Let's get retarded!
@@ -209,8 +215,8 @@ class ArchiverPlugin extends Plugin {
 			// Fetch metadata for the ticket
 			$export = array (
 					'ticket' => $ticket,
-					'recipients' => $ticket->getThread ()->getAllRecipients (),
-					'mail' => $ticket->getThread ()->findOriginalEmailMessage (),
+					//'recipients' => $ticket->getThread ()->getAllRecipients (),
+					//'mail' => $ticket->getThread ()->findOriginalEmailMessage (),
 					'thread' => $ticket->getThread () 
 			);
 			file_put_contents ( "$folder/meta.json", json_encode ( $export ) );
