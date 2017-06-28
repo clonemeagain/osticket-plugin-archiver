@@ -11,7 +11,7 @@ require_once ('config.php');
  * It also provides a cron task to archive & delete old tickets that you don't need anymore.
  */
 class ArchiverPlugin extends Plugin {
-	const DEBUG = TRUE;
+	const DEBUG = FALSE;
 	/**
 	 * I believe this is part of the Plugin spec, which config to use
 	 *
@@ -27,7 +27,7 @@ class ArchiverPlugin extends Plugin {
 	private $path;
 	
 	/**
-	 * Run on every instatiation of osTicket..
+	 * Run on every instantiation of osTicket..
 	 * needs to be concise
 	 *
 	 * {@inheritdoc}
@@ -37,13 +37,15 @@ class ArchiverPlugin extends Plugin {
 	public function bootstrap() {
 		// Register handler to detect tickets being deleted..
 		// really depends on admin adding the line to the class.tickets.php file
-		// kinda breaks all archiving without that.
-		Signal::connect ( 'ticket.before.delete', function ($ticket) {
-			if (self::DEBUG) {
-				print "Ticket delete signal received, initiating Archive!\n";
-			}
-			$this->archive ( $ticket );
-		} );
+		// kinda breaks all archiving without that, well, unless Delete Only mode is specified.
+		if ($this->getConfig ()->get ( 'mode' ) !== 'delete') {
+			Signal::connect ( 'ticket.before.delete', function ($ticket) {
+				if (self::DEBUG) {
+					print "Ticket delete signal received, initiating Archive!\n";
+				}
+				$this->archive ( $ticket );
+			} );
+		}
 		
 		if ($this->getConfig ()->get ( 'purge' )) {
 			// Register cron handler to archive & delete tickets on schedule
@@ -85,24 +87,12 @@ class ArchiverPlugin extends Plugin {
 			// Find deletable tickets in the database:
 			foreach ( $this->findOldTickets ( $max_age, $config->get ( 'purge-num' ) ) as $ticket_id ) {
 				// Trigger the Archive code via signal above by simply deleting the ticket
-				$t = self::getTicket ( $ticket_id );
+				$t = Ticket::lookup ( $ticket_id );
 				if ($t instanceof Ticket) {
-					error_log ( "Would have deleted {$t->getSubject()}" );
-					$this->archive ( $t );
-					// Ticket::lookup ( $ticket_id )->delete ();
-				} else {
-					error_log ( "$ticket_id wasn't a valid ticket_id" );
+					$t->delete ();
 				}
 			}
-		} else {
-			print "Purge due: " . date ( 'd-m-Y H:i:s', $next_run );
 		}
-	}
-	public static function getTicket($id) {
-		// Bypass the cache, why? Because we want the full ticket
-		return Ticket::objects ()->filter ( array (
-				'ticket_id' => $id 
-		) )->one ();
 	}
 	
 	/**
@@ -215,8 +205,8 @@ class ArchiverPlugin extends Plugin {
 			// Fetch metadata for the ticket
 			$export = array (
 					'ticket' => $ticket,
-					//'recipients' => $ticket->getThread ()->getAllRecipients (),
-					//'mail' => $ticket->getThread ()->findOriginalEmailMessage (),
+					// 'recipients' => $ticket->getThread ()->getAllRecipients (),
+					// 'mail' => $ticket->getThread ()->findOriginalEmailMessage (),
 					'thread' => $ticket->getThread () 
 			);
 			file_put_contents ( "$folder/meta.json", json_encode ( $export ) );

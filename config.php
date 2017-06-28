@@ -17,6 +17,11 @@ class ArchiverPluginConfig extends PluginConfig {
 		return Plugin::translate ( 'archiver' );
 	}
 	function pre_save($config, &$errors) {
+		
+		// Delete mode doesn't actually need any of this:
+		if($config['mode'] == 'delete')
+			return TRUE;
+		
 		$server_user = posix_getpwuid ( posix_geteuid () ) ['name']; // https://stackoverflow.com/a/17709403
 		                                                             
 		// Ensure the webserver can write to the archive folder:
@@ -62,6 +67,7 @@ class ArchiverPluginConfig extends PluginConfig {
 				'mode' => new ChoiceField ( array (
 						'label' => $__ ( 'Archive type' ),
 						'choices' => array (
+								'delete' => $__ ( 'Just delete tickets (no save)' ),
 								'basic' => $__ ( 'Basic Archive Mode (save a PDF only).' ),
 								'advanced' => $__ ( 'Advanced Archive Mode (stores all attachments and metadata in a folder per ticket.' ) 
 						),
@@ -74,7 +80,6 @@ class ArchiverPluginConfig extends PluginConfig {
 						'size' => 80,
 						'length' => 256,
 						'placeholder' => '/opt/osTicket/archive',
-						'required' => true 
 				) ),
 				'include-notes' => new Booleanfield ( array (
 						'label' => $__ ( 'Include private notes in archived tickets' ) 
