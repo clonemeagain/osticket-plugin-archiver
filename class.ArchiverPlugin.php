@@ -76,7 +76,7 @@ class ArchiverPlugin extends Plugin {
 		if (self::DEBUG || ! $next_run || $now > $next_run) {
 			// if (self::DEBUG)
 			// print "Running purge\n";
-			$config->set ( 'last-run', $now + $freq_in_seconds );
+			$config->set ( 'last-run', $now );
 			
 			// Fetch the rest of the admin settings, now that we're actually going through with this:
 			$max_age = ( int ) $config->get ( 'purge-age' );
