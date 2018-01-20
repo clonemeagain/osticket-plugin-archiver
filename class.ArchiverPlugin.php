@@ -110,7 +110,7 @@ class ArchiverPlugin extends Plugin {
 		}
 		
 		$ids = array ();
-		$r = db_query ( 'SELECT ticket_id FROM ' . TICKET_TABLE . ' WHERE closed > DATE_SUB(NOW(), INTERVAL ' . $age_months . ' MONTH) ORDER BY ticket_id ASC LIMIT ' . $max_purge );
+		$r = db_query ( 'SELECT ticket_id FROM ' . TICKET_TABLE . ' WHERE closed < DATE_SUB(NOW(), INTERVAL ' . $age_months . ' MONTH) ORDER BY ticket_id ASC LIMIT ' . $max_purge );
 		while ( $i = db_fetch_array ( $r ) ) {
 			$ids [] = $i ['ticket_id'];
 		}
