@@ -128,6 +128,9 @@ class ArchiverPlugin extends Plugin {
 	private function archive(Ticket $ticket) {
 		/**
 		 * Pretty much a duplicate of $ticket->pdfExport(),
+		 * I wish I could remember why I had to copy it, instead of just calling it..
+		 * 
+		 * 
 		 * // Print ticket...
 		 * export the ticket thread as PDF.
 		 * function pdfExport($psize='Letter', $notes=false) {
