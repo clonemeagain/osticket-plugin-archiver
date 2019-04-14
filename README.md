@@ -9,7 +9,7 @@ Enables PDF Archiving of tickets before they delete, and a basic auto-delete of 
 Install as a normal plugin (extract/checkout into `/include/plugins/archiver`), don't change core at all, enable the plugin via the admin screen and tick the box ```Auto-purge old closed tickets```. Configure it as you need for your environment.
 
 ## Max Age Setting
-How old is too old? If you specify an max-age for closed tickets, the 
+How old is too old? If you specify an max-age for closed tickets, the plugin will delete them for you when the maximum age you specify is reached.
 
 ## Purge Frequency Setting
 We store when it last ran the purge, and depending on your settings, will run it again provided cron is called often enough. EG: If you want it to run every 12 hours, but only run cron every 24, not much we can do about that.
