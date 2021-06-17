@@ -200,7 +200,10 @@ class ArchiverPlugin extends Plugin {
 			$dept = $ticket->getDeptName ();
 			$user = $ticket->getOwner ()->getName ();
 			
-			$folder = $path . @Format::slugify ( "/$dept/$user/{$ticket->getSubject ()}_{$ticket->getNumber ()}" );
+			$folder = $path 
+			    . '/' . @Format::slugify ($dept);
+			    . '/' . @Format::slugify ($user);
+			    . '/' . @Format::slugify ("{$ticket->getSubject ()}_{$ticket->getNumber ()}");
 			
 			if (! is_dir ( $folder )) {
 				mkdir ( $folder, 0755, TRUE );
@@ -215,11 +218,12 @@ class ArchiverPlugin extends Plugin {
 			file_put_contents ( "$folder/meta.json", json_encode ( $export ) );
 			
 			// start dumping attachments:
-			foreach ( $ticket->getThread ()->getEntries ()->getAttachments () as $a ) {
-				// ?? Does that even work completely untested so far.
-				$file = $a->file; // Should be AttachmentFile objects
-				$filename = $file->getFilename ();
-				$this->copyFile ( $file, "$folder/attachment_$filename" );
+			foreach ( $ticket->getThread ()->getEntries('') as $_entry ) {
+				$entry = $ticket->getThread ()->getEntry($_entry['id']);
+				foreach( $entry->getAttachments () as $a ){
+					$file = new AttachmentFile($a['attach_id']);
+					$this->copyFile ( $file, "$folder/attachment_{$a['name']}" );
+				}
 			}
 			
 			ob_clean ();
@@ -240,7 +244,12 @@ class ArchiverPlugin extends Plugin {
 	 *        	(path to save file into)
 	 */
 	private function copyFile(AttachmentFile $file, $dest) {
-		$bk = $file->open ();
+		try {
+			$bk = $file->open ();
+		} catch ( Exception $e ) {
+			$this->log ( "Errors were encountered loading attachment" );
+			return;
+		}
 		try {
 			ob_start ();
 			$bk->passthru ();
