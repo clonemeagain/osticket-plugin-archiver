@@ -201,8 +201,8 @@ class ArchiverPlugin extends Plugin {
 			$user = $ticket->getOwner ()->getName ();
 			
 			$folder = $path 
-			    . '/' . @Format::slugify ($dept);
-			    . '/' . @Format::slugify ($user);
+			    . '/' . @Format::slugify ($dept)
+			    . '/' . @Format::slugify ($user)
 			    . '/' . @Format::slugify ("{$ticket->getSubject ()}_{$ticket->getNumber ()}");
 			
 			if (! is_dir ( $folder )) {
