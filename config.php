@@ -42,7 +42,7 @@ class ArchiverPluginConfig extends PluginConfig {
 		// Attempt to find our signal string:
 		if (preg_match ( '/ticket\.before\.delete/', file_get_contents ( $class_ticket_php ) ) == FALSE) {
 			// We are unable to detect tickets being deleted! shit!
-			$errors ['err'] .= "\nThe signal is not being sent from class.tickets.php, check README.";
+			// $errors ['err'] .= "\nThe signal is not being sent from class.tickets.php, check README."; //uncomment this to verify the MOD has been properly put in place (see Readme.md)
 		}
 		if (isset ( $errors ['err'] ))
 			return false;
