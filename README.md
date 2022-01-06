@@ -20,7 +20,9 @@ How many tickets do we purge every time we run? Depending on how you've configur
 
 
 # To Install as MOD and enable Archiving during any ticket delete:
-Open `/include/class.ticket.php` and add the "Signal::send" line below:
+Uncomment line ~45 of this plugin's config.php to allow using it without the ticket-delete MOD (see below). Line 45 is the one that adds the error message 'The signal is not being sent from class.tickets.php'. That checks to make sure you've followed the next step properly.
+
+Open `/include/class.ticket.php` and add the "Signal::send" line shown below (inside the delete function found around line: ~2700):
 
 ```php
     function delete($comments='') {
